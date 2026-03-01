@@ -1,0 +1,14 @@
+# Local Database (ChromaDB)
+chroma_db/
+
+# Secrets & Keys
+.env
+.streamlit/secrets.toml
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.DS_Store
