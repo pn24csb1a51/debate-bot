@@ -1,389 +1,215 @@
-# 🔴 Devil's Advocate
-### *A Multi-Agent Strategic Reasoning Engine with Constitutional Governance*
+# 🧠 Cognitive OS — Multi-Mode Reasoning Engine
 
-> A production-grade AI debate system that stress-tests human reasoning in real time. Seven specialised LangGraph nodes work in concert to fact-check claims, audit logic, detect fallacies, score arguments, and overrule unfair AI responses — all while building a persistent memory of what rhetorical tactics work best against *you specifically*.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Cognitive Architecture — The 7-Node Pipeline](#cognitive-architecture)
-- [Elite Technical Features](#elite-technical-features)
-- [Visual Analytics — The Weakness Radar](#visual-analytics)
-- [Technical Stack](#technical-stack)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Project Structure](#project-structure)
-- [Scoring System](#scoring-system)
+> *A multi-agent, memory-augmented reasoning system built on LangGraph, ChromaDB, and Streamlit. Five cognitive modes. One persistent brain.*
 
 ---
 
-## Overview
+## What It Is
 
-Devil's Advocate is not a chatbot. It is a **multi-agent reasoning engine** designed to challenge the logical integrity of every argument a user makes. Each user message triggers a full 7-stage agentic pipeline: the claim is fact-checked against live web data, audited for logical fallacies and self-contradictions, challenged by a Socratic AI opponent, reviewed by a neutral judicial agent, and scored — all before a response is rendered.
-
-The system accumulates long-term memory across sessions, learning which rhetorical tactics cause *this specific user* to concede. It then deploys those tactics with increasing precision over time.
-
-A secondary **Echo Chamber** mode runs two AI agents against each other autonomously, generating synthetic debate transcripts that serve as rich training data for argument quality analysis.
+Cognitive OS is not a chatbot. It is a **reasoning environment** — a set of five specialised AI modes, each with its own logic pipeline, memory collection, and cognitive purpose. Every session you have is remembered. Every weakness in your reasoning is tracked. The system gets smarter about *you* the more you use it.
 
 ---
 
-## Cognitive Architecture
-
-### The 7-Node LangGraph Pipeline
-
-Every user message flows through a deterministic directed acyclic graph compiled by **LangGraph**. Nodes execute sequentially; each node reads from and writes back to a shared `DebateState` TypedDict. The full pipeline is:
+## Architecture Overview
 
 ```
-feedback_analysis → memory_retrieval → researcher
-                                           │
-                                    contradiction
-                                           │
-                                        advocate
-                                           │
-                                         judge
-                                           │
-                                        scoring → END
+app.py  (Streamlit router)
+│
+├── ui/debate_ui.py        →  brain.py (LangGraph)  +  memory.py (DebateMemory)
+├── ui/execution_ui.py     →  core/llm_config.py    +  core/memory_manager.py
+├── ui/ripple_ui.py        →  core/llm_config.py    +  core/memory_manager.py
+├── ui/wealth_ui.py        →  core/llm_config.py    +  core/memory_manager.py
+└── ui/brain_map_ui.py     →  core/memory_manager.py (all 4 collections)
+         │
+         └── core/
+               ├── llm_config.py       — provider-agnostic LLM factory
+               └── memory_manager.py   — 4 isolated ChromaDB collections
 ```
 
 ---
 
-### Node Descriptions
+## The Five Modes
 
-| # | Node | Role | LLM Used |
-|---|---|---|---|
-| 1 | **`feedback_analysis_node`** | Detects whether the user's latest message constitutes a concession of the previous argument. If yes, logs the winning tactic to persistent vector memory. | Fast LLM |
-| 2 | **`memory_retrieval_node`** | Queries ChromaDB for semantically similar past arguments and retrieves hybrid-ranked winning strategies for the current topic. | *(No LLM — vector search only)* |
-| 3 | **`researcher_node`** | Two-stage fact-checking gate. First determines if the claim contains a verifiable statistic or factual assertion. If yes, executes a live DuckDuckGo web search and passes the results to a verdict LLM that classifies the claim as `ACCURATE`, `INACCURATE`, or `UNVERIFIABLE`. | Fast LLM × 2 |
-| 4 | **`contradiction_node`** | Formal logic audit. Compares the current claim against the user's full argument history to detect direct contradictions. Independently identifies logical fallacies (Ad Hominem, Strawman, Hasty Generalisation, Slippery Slope, etc.). Assigns a severity rating of `LOW`, `MEDIUM`, or `HIGH`. | Fast LLM |
-| 5 | **`advocate_node`** | The primary Socratic opponent. Builds a structured response using all prior context: fact-check findings, winning tactics, contradiction report, and argument history. Follows a strict response protocol: Steelman → Fact Check → Contradiction → Assumption Exposure → Challenge → Socratic Question. | Full LLM |
-| 6 | **`judge_node`** | A constitutionally independent neutral agent that audits the Advocate's response for three violation types: **Bullying** (aggression without logic), **Strawman** (misrepresentation of the user's claim), and **Fact Suppression** (ignoring the Researcher's findings). Runs on the full model at `temperature=0` for maximum determinism. Can issue an `OVERRULED` verdict that penalises the bot's score. | Full LLM (temp=0) |
-| 7 | **`scoring_node`** | Evaluates the full turn and assigns cumulative point deltas to both sides based on: fallacies found, contradictions detected, factual accuracy, concession status, judge verdict, and rhetorical quality. Applies the Judge's overrule penalty (`-15 bot / +5 user justice bonus`) on top of the base scoring. | Fast LLM |
+### 🔴 Devil's Advocate
+**The original debate engine. Full LangGraph pipeline.**
 
----
+A 4-node LangGraph pipeline that stress-tests your reasoning using Socratic challenges, logic auditing, and adaptive tactic learning.
 
-## Elite Technical Features
-
-### 1. Bandit Strategy Learning (Adaptive Tactic Memory)
-
-**File:** `memory.py`
-
-The system maintains a dedicated ChromaDB vector collection called `strategy_feedback` that stores every rhetorical tactic that has successfully caused the user to concede, stall, or admit a logical flaw. This collection is more than a log — it functions as a **contextual bandit**, guiding future tactic selection.
-
-**How it works:**
-
-When a concession is detected by `feedback_analysis_node`, the following metadata is written to ChromaDB via an **upsert pattern** (deterministic document ID derived from MD5 hash of tactic name):
-
-```python
-{
-    "tactic_name"       : "Socratic Questioning",
-    "topic"             : "AI job displacement",
-    "user_concession"   : "ok fair point, I hadn't considered that...",
-    "bot_argument_used" : "Your premise assumes full substitution...",
-    "timestamp"         : "2025-01-15T14:32:00",
-    "session_id"        : "abc-123"
-}
-```
-
-On each subsequent turn, `memory_retrieval_node` retrieves candidate tactics using semantic similarity search, then re-ranks them using a **hybrid scoring formula:**
-
-```
-hybrid_score = (cosine_similarity × 0.6) + (success_rate × 0.4)
-```
-
-This means a tactic with 80% historical win rate on similar topics will outrank a tactic that is merely topically relevant but has never worked. The system gets harder to debate the longer you use it.
-
----
-
-### 2. Constitutional Governance (Judicial Review Node)
-
-**File:** `brain.py` — `judge_node`, `JUDGE_PROMPT`
-
-The Judge is a second, fully independent AI agent with a deliberate adversarial relationship to the Advocate. Three design decisions enforce genuine independence:
-
-- **Separate system prompt** — The Judge's persona explicitly states: *"You are NOT the Devil's Advocate. You do NOT take sides."* It receives no access to the Advocate's tactic memory or strategy context.
-- **Temperature=0 on full model** — The Judge uses deterministic inference on the highest-capability model, while the Advocate uses `temperature=0.7` for rhetorical variety. They reason differently by design.
-- **Strict false-positive guard** — The prompt explicitly defines what does *not* constitute a violation (tough-but-logical challenges, slight re-framing, expanding beyond the fact-check). The Judge does not overrule for style.
-
-**Violation taxonomy:**
-
-| Violation | Definition |
+| Node | Role |
 |---|---|
-| **BULLYING** | Aggressive or dismissive language that replaces logical argumentation rather than accompanying it |
-| **STRAWMAN** | Attacking a weakened misrepresentation of the user's actual claim |
-| **FACT_SUPPRESSION** | Ignoring the Researcher node's `INACCURATE` finding and arguing as if the user's false claim were valid |
+| `feedback_analysis_node` | Detects if the user conceded the last turn. Logs the winning tactic to memory. |
+| `memory_retrieval_node` | Queries both debate history and winning strategies from ChromaDB |
+| `contradiction_node` | Fast-LLM logic audit — finds fallacies, contradictions, assigns severity |
+| `advocate_node` | Builds the final Socratic challenge using all prior context |
 
-**Score impact on `OVERRULED`:** Bot `-15 pts`, User `+5 pts` (Justice Bonus).
+**Additional features:**
 
----
+- **⚖️ Judge Node** — independent LLM call after every bot reply, checks for `BULLYING`, `STRAWMAN`, or `FACT_SUPPRESSION`. Violations: Bot -15 pts, You +5 pts.
+- **📊 Live Scoreboard** — You vs Bot point system updated every turn
+- **📈 Weakness Radar** — Plotly spider chart: Fallacies · Contradictions · Factual Errors · Severity · Bullying
+- **🤖 Echo Chamber** — Two LLMs argue any thesis autonomously for 2–8 rounds
+- **🏆 Tactics Tab** — Every tactic the bot learned makes you concede
 
-### 3. Active RAG — Real-Time Fact-Checking
+**Scoring table:**
 
-**File:** `brain.py` — `researcher_node`, `_web_search()`
-
-The Researcher implements a **three-stage Active Retrieval Augmented Generation** pipeline that fires conditionally, not on every turn. This prevents unnecessary latency on opinion-based arguments.
-
-**Stage A — Gate (LLM classification):**
-A fast LLM call decides whether the claim contains a checkable factual assertion. Pure opinions (`"freedom is important"`), hypotheticals, and philosophical statements skip directly to the contradiction node. Only claims containing statistics, named studies, historical events, or specific causal assertions trigger a search.
-
-**Stage B — Search (DuckDuckGo, no API key required):**
-```python
-from duckduckgo_search import DDGS
-results = list(DDGS().text(query, max_results=4))
-```
-Returns title, URL, and excerpt for the top 4 results. Rate-limit safe with graceful fallback.
-
-**Stage C — Verdict (LLM evaluation):**
-A second fast LLM call reads the search results against the extracted claim and returns a structured verdict:
-
-```
-VERDICT: ACCURATE | INACCURATE | UNVERIFIABLE
-CONFIDENCE: HIGH | MEDIUM | LOW
-FINDING: [2-3 sentence summary of what the web actually says]
-CORRECTED_FACT: [The real figure, if INACCURATE]
-```
-
-The verdict is injected into both the `analysis_report` (for scoring) and the Advocate's system prompt (so it leads with the corrected data). A verified `INACCURATE` verdict costs the user **-10 points** and awards the bot **+3 points**.
+| Event | Points |
+|---|---|
+| Logical fallacy detected | You **-3** |
+| Contradiction with past claim | You **-5** |
+| Fact checked INACCURATE | You **-10** |
+| Fact UNVERIFIABLE | You **-3** |
+| Judge overrules bot | Bot **-15**, You **+5** |
+| Concession detected | You **-10**, Bot **+10** |
+| Clean argument (no flaws) | You **+3** |
 
 ---
 
-### 4. Echo Chamber — Autonomous Agent Self-Play
+### 📅 Execution Architect
+**Energy-aware task categorisation and daily planning.**
 
-**File:** `brain.py` — `run_self_play_round()`, `SelfPlayTurnResult`, `app.py` — `render_echo_chamber()`
+Set your energy level (1–10 via `select_slider`) and paste your task list. The engine pre-categorises tasks into **High Focus (Deep Work)** vs **Low Focus (Admin)** before sending to the LLM, then streams a ranked execution plan matched to your cognitive state.
 
-The Echo Chamber is a fully autonomous debate simulation mode. Given a topic, two AI agents — the **Proponent** (defends the thesis) and the **Devil's Advocate** (attacks it) — debate for a configurable number of rounds (2–8) with no human input.
-
-**Architecture:**
-
-Each round is a complete mini-pipeline:
-```
-Proponent → Researcher (fact-checks Proponent) → Advocate → Judge → Scorer
-```
-
-The Proponent is driven by `PROPONENT_PROMPT`, a separate system persona focused on: direct counter-rebuttal, evidence citation, strategic escalation, and offensive Socratic challenges. The Advocate uses the identical `BASE_SYSTEM_PROMPT` as in human mode — ensuring the same quality of challenge against both human and AI opponents.
-
-**Streamlit integration** uses a **rerun-per-round** pattern rather than threading: each Streamlit rerun processes exactly one round, appends it to `echo_messages` in session state, then calls `st.rerun()`. This produces a live-updating transcript with no concurrency overhead.
-
-**Primary use case:** Synthetic debate data generation. Running 50 simulations on a topic produces a rich annotated corpus of argument quality, fact accuracy, fallacy distribution, and judicial overrule patterns — without any human participants.
+- Three energy bands: High (7–10) · Medium (4–6) · Low (1–3)
+- Past tasks saved with energy metadata — bottom panel shows completion patterns at the same energy level
+- Optional blockers/constraints field feeds into the plan
 
 ---
 
-## Visual Analytics
+### 🔮 Ripple Engine
+**Structured 3-tier consequence mapping with blindspot detection.**
 
-### The Weakness Radar (Plotly Spider Chart)
+Describe a decision. The engine maps every consequence across three orders, then searches memory for repeating blindspots before generating the analysis.
 
-**File:** `app.py` — `render_weakness_radar()`, `_update_weakness_profile()`
+- **Repeating Pattern Detection** — ChromaDB searched first; red warning shown if you are making the same mistake again
+- Forced structured output: `## 1ST ORDER` → `## 2ND ORDER` → `## 3RD ORDER` → `## BLINDSPOTS` → `## And then what?`
+- Three colour-coded expandable cards: 🟢 1st · 🟡 2nd · 🔴 3rd
+- Each order saved as a separate memory entry with `order=1/2/3` for filtered future queries
 
-After every debate turn, five cumulative weakness axes are updated by parsing the structured outputs of the pipeline nodes:
+---
 
-| Axis | Data Source | Increment Logic |
+### 📉 Wealth Logic
+**Financial reasoning and opportunity cost auditor.**
+
+Describe a financial scenario. The engine audits reasoning across four lenses: opportunity cost, risk-adjusted return, time horizon, and hidden assumptions.
+
+- **Live Opportunity Cost Calculator** — Path A (your decision) vs Path B (12% index benchmark), compound interest projected side-by-side
+- Risk level · asset class · time horizon controls inject directly into LLM context
+- Never gives investment advice — audits *reasoning quality* only
+
+---
+
+### 🧠 Brain Map
+**Semantic network visualisation of all memory.**
+
+Pulls every entry from all 4 ChromaDB collections and renders them as an interactive 2D network graph. Similar nodes are connected by edges.
+
+- **TF-IDF cosine similarity** (scikit-learn, bigrams, 500 features) across all node texts
+- **Fruchterman-Reingold spring layout** in pure NumPy — same-mode nodes cluster naturally
+- Edge opacity and width scale with similarity strength
+- Hover any node to read full metadata: what you wrote, energy/domain/risk, timestamp
+- **Edge Similarity Threshold** slider (0.05–0.70) and **Max Edges** slider (10–300)
+- Colour coding: 🔴 `#e63946` · 📅 `#f4a261` · 🔮 `#a8dadc` · 📉 `#2a9d8f` · 🧠 `#c77dff`
+
+---
+
+## Memory Architecture
+
+Four completely isolated ChromaDB collections — no data bleeds between modes.
+
+| Collection | Mode | Key metadata fields |
 |---|---|---|
-| **Fallacies** | `contradiction_node` analysis report | `+1` per `FALLACY:` line detected |
-| **Contradictions** | `contradiction_node` analysis report | `+1` per `PAST:` conflict block |
-| **Factual Errors** | `researcher_node` verdict | `+1` when `fact_check_verdict == "INACCURATE"` |
-| **Severity** | `_extract_severity()` on analysis report | `+2` for HIGH, `+1` for MEDIUM per turn |
-| **Bullying** | `judge_node` verdict | `+1` per `OVERRULED` ruling |
+| `debate_memory` | Devil's Advocate | `user_arg`, `bot_response`, `severity`, `tactic_used` |
+| `strategy_feedback` | Devil's Advocate | `tactic_name`, `topic`, `user_concession` |
+| `execution_strategies` | Execution Architect | `task`, `energy_level`, `category`, `completion_status` |
+| `ripple_consequences` | Ripple Engine | `decision`, `consequence`, `order`, `domain`, `blindspot` |
+| `wealth_reasoning` | Wealth Logic | `scenario`, `risk_level`, `time_horizon`, `asset_class` |
 
-Values are normalised to a 0–10 scale for rendering. The chart uses `plotly.graph_objects.Scatterpolar` with a translucent red fill area, styled to match the application's dark editorial aesthetic. Raw counts are displayed below the chart as an inline legend.
-
-In **Echo Chamber** mode, a separate **Proponent Weakness Radar** is generated from the `SelfPlayTurnResult` objects after all rounds complete, showing where the AI defender's logic degraded over the simulation.
+`core/memory_manager.py` is the single routing layer — self-healing on `get_stats()` if a collection is deleted externally.
 
 ---
 
-## Technical Stack
+## LLM Provider Support
 
-| Layer | Technology | Purpose |
-|---|---|---|
-| **Orchestration** | [LangGraph](https://github.com/langchain-ai/langgraph) | Stateful multi-node agentic pipeline with typed state |
-| **LLM Abstraction** | [LangChain](https://github.com/langchain-ai/langchain) | Unified interface across all LLM providers |
-| **Primary LLM** | [Groq](https://groq.com) / OpenAI / Anthropic / Google | Pluggable via `LLM_PROVIDER` env var |
-| **Fast LLM** | `llama-3.1-8b-instant` (Groq) | Concession detection, fact-checking gate, scoring |
-| **Vector Memory** | [ChromaDB](https://www.trychroma.com) | Persistent local embeddings for argument + tactic memory |
-| **Embeddings** | `all-MiniLM-L6-v2` (default ChromaDB) | Free, offline sentence embeddings |
-| **Web Search** | [duckduckgo-search](https://github.com/deedy5/duckduckgo_search) | Zero-cost real-time fact retrieval, no API key |
-| **UI Framework** | [Streamlit](https://streamlit.io) | Web interface with real-time rerun-per-round streaming |
-| **Visualisation** | [Plotly](https://plotly.com/python/) | Interactive radar chart for logical weakness profiling |
-| **Language** | Python 3.10+ | |
-
----
-
-## Installation
-
-### Prerequisites
-
-- Python 3.10 or higher
-- A valid API key for at least one supported LLM provider (Groq recommended — fastest and free tier available)
-
-### Steps
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/devils-advocate.git
-cd devils-advocate
-
-# 2. Create and activate a virtual environment
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# macOS / Linux
-source venv/bin/activate
-
-# 3. Install all dependencies
-pip install -r requirements.txt
-```
-
-### Dependencies (`requirements.txt`)
-
-```
-langchain>=0.3.0
-langchain-openai>=0.2.0
-langchain-google-genai>=2.0.0
-langchain-anthropic>=0.3.0
-langchain-groq>=0.2.0
-langgraph>=0.2.0
-chromadb>=0.5.0
-python-dotenv>=1.0.0
-streamlit>=1.38.0
-duckduckgo-search>=6.2.0
-plotly>=5.18.0
-```
-
----
-
-## Configuration
-
-Create a `.env` file in the project root:
+Change one line in `.env` — zero code changes required.
 
 ```env
-# ── LLM Provider ─────────────────────────────────────────────
-# Options: groq | openai | anthropic | google
-LLM_PROVIDER=groq
-
-# ── Groq (recommended) ───────────────────────────────────────
-GROQ_API_KEY=your_groq_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-GROQ_FAST_MODEL=llama-3.1-8b-instant
-
-# ── OpenAI (optional) ────────────────────────────────────────
-# OPENAI_API_KEY=your_openai_api_key_here
-# OPENAI_MODEL=gpt-4o
-# OPENAI_FAST_MODEL=gpt-4o-mini
-
-# ── Anthropic (optional) ─────────────────────────────────────
-# ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# ANTHROPIC_MODEL=claude-opus-4-6
-# ANTHROPIC_FAST_MODEL=claude-haiku-4-5-20251001
-
-# ── Google Gemini (optional) ─────────────────────────────────
-# GOOGLE_API_KEY=your_google_api_key_here
-# GOOGLE_MODEL=gemini-2.0-flash
+LLM_PROVIDER=groq        # groq | openai | anthropic | google
+GROQ_API_KEY=your_key
 ```
 
-> **Note:** No API key is required for DuckDuckGo web search. ChromaDB stores its vector database locally at `./chroma_db/` with no external connection.
+| Provider | Full model | Fast model |
+|---|---|---|
+| Groq | llama-3.3-70b-versatile | llama-3.1-8b-instant |
+| OpenAI | gpt-4o | gpt-4o-mini |
+| Anthropic | claude-opus-4-6 | claude-haiku-4-5-20251001 |
+| Google | gemini-2.0-flash | gemini-2.0-flash |
 
----
-
-## Usage
-
-### Launch the Web Interface
-
-```bash
-streamlit run app.py
-```
-
-Opens at `http://localhost:8501`
-
-### Live Debate Mode
-
-Navigate to the **💬 Live Debate** tab. Type any claim and press Enter:
-
-```
-"Artificial intelligence will eliminate more jobs than it creates"
-"Social media platforms should be regulated as public utilities"
-"Universal Basic Income is economically unviable"
-```
-
-The sidebar updates in real time with the live scorecard, weakness radar, judicial oversight panel, and logic audit after every turn.
-
-### Echo Chamber Mode
-
-Navigate to the **🤖 Echo Chamber** tab:
-
-1. Enter a debate topic
-2. Select the number of rounds (2–8)
-3. Click **▶ START SIMULATION**
-
-Watch Proponent and Advocate debate autonomously, round by round, with live transcript rendering. A post-simulation verdict and Proponent Weakness Radar are generated on completion.
-
-### Terminal Mode
-
-```bash
-python brain.py
-```
-
-Runs the full pipeline in a REPL for development and testing. Supports commands: `score`, `report`, `factcheck`, `tactics`, `verdict`, `stats`, `reset`, `forget`.
+Fast model used for: concession detection · contradiction analysis · Judge evaluation.
+Full model used for: all user-facing responses.
 
 ---
 
 ## Project Structure
 
 ```
-devils-advocate/
-│
-├── brain.py          # Core agentic pipeline — all 7 LangGraph nodes,
-│                     # self-play engine, prompt constants, REPL
-│
-├── app.py            # Streamlit web UI — Live Debate + Echo Chamber tabs,
-│                     # sidebar scorecard, weakness radar, judicial panel
-│
-├── memory.py         # ChromaDB dual-collection memory system —
-│                     # debate history + bandit strategy feedback
-│
-├── requirements.txt  # Python dependencies
-├── .env              # API keys and model configuration (not committed)
-└── chroma_db/        # Local vector database (auto-created, not committed)
+debate-bot/
+├── app.py                      # Streamlit router — entry point
+├── brain.py                    # LangGraph 4-node debate pipeline
+├── memory.py                   # DebateMemory — dual ChromaDB collections
+├── requirements.txt
+├── .env                        # LLM_PROVIDER + API keys
+├── .streamlit/
+│   └── config.toml             # Dark theme
+├── chroma_db/                  # Persistent ChromaDB data (auto-created)
+├── core/
+│   ├── __init__.py
+│   ├── llm_config.py           # Provider-agnostic LLM factory + system prompts
+│   └── memory_manager.py       # 4-collection routing layer (self-healing)
+└── ui/
+    ├── __init__.py
+    ├── debate_ui.py            # 🔴 Devil's Advocate — full feature mode
+    ├── execution_ui.py         # 📅 Execution Architect
+    ├── ripple_ui.py            # 🔮 Ripple Engine
+    ├── wealth_ui.py            # 📉 Wealth Logic
+    ├── brain_map_ui.py         # 🧠 Brain Map — semantic network
+    └── placeholder_ui.py       # Base template
 ```
 
 ---
 
-## Scoring System
+## Installation
 
-### Live Debate (Human vs Advocate)
+```bash
+# 1. Navigate to project
+cd "C:\ai project 3\debate-bot"
 
-| Event | User Δ | Bot Δ |
-|---|---|---|
-| Logical fallacy detected (per fallacy) | **-3** | — |
-| Direct self-contradiction found | **-5** | — |
-| MEDIUM severity reasoning | **-2** | — |
-| HIGH severity reasoning (stacks) | **-4** | — |
-| Factual claim verified INACCURATE | **-10** | **+3** |
-| Factual claim UNVERIFIABLE | **-3** | — |
-| User concession detected | — | **+5** |
-| Fallacy correctly named in response | — | **+2** |
-| Judge OVERRULES bot (Justice Bonus) | **+5** | **-15** |
-| Bot repeats prior argument | — | **-3** |
-| Bot ignores user's core claim | — | **-2** |
+# 2. Activate virtual environment
+venv\Scripts\activate
 
-Scores are strictly cumulative and floor at 0. The maximum per-turn deduction for the user is capped at **-25 points**.
+# 3. Install all dependencies
+pip install -r requirements.txt
+venv\Scripts\python.exe -m pip install scikit-learn
 
-### Echo Chamber (Proponent vs Advocate)
+# 4. Create .env
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_key_here
 
-The self-play scorer uses a separate prompt calibrated for AI-vs-AI argument quality rather than human rhetorical patterns. Both agents are scored independently each round, with the same Judge and Researcher nodes auditing the exchange.
+# 5. Run
+streamlit run app.py
+```
 
 ---
 
-## Architectural Notes
+## Technical Stack
 
-**Why LangGraph over a simple chain?** The pipeline requires conditional branching (researcher skips non-factual claims), shared mutable state across nodes (scores must accumulate), and the ability to add nodes without touching existing logic. LangGraph's compiled `StateGraph` provides all of this with full type safety via `TypedDict`.
-
-**Why two separate LLMs?** The fast model (`llama-3.1-8b-instant`) handles deterministic classification tasks — concession detection, fact-check gating, scoring — where speed matters and the task is structured. The full model handles generative, rhetorically demanding responses. This dual-model architecture cuts turn latency by approximately 40% compared to using the full model for everything.
-
-**Why ChromaDB local embeddings?** Keeping the vector database local means the system accumulates persistent user-specific memory across sessions with zero external API calls and no data leaving the machine. The `all-MiniLM-L6-v2` model provides sufficient semantic quality for argument retrieval at zero cost.
-
----
-
-*Built with LangGraph · LangChain · ChromaDB · Streamlit · Groq*
+| Layer | Technology |
+|---|---|
+| UI Framework | Streamlit 1.38+ |
+| LLM Orchestration | LangChain + LangGraph |
+| LLM Providers | Groq / OpenAI / Anthropic / Google |
+| Vector Database | ChromaDB (persistent, local) |
+| Semantic Similarity | scikit-learn TF-IDF + cosine similarity |
+| Visualisation | Plotly graph_objects |
+| Graph Layout | Custom NumPy Fruchterman-Reingold |
+| Web Search | DuckDuckGo Search |
+| Environment | python-dotenv |
